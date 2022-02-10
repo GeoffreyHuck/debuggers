@@ -62,6 +62,7 @@ export const makeRunner = ({
         client,
         programPath,
         stepsAcc,
+        filePaths: [options.main, ...options.files].map((file) => path.resolve(process.cwd(), file.relativePath)),
         canDigScope,
         canDigVariable,
         threadId: stoppedEvent.threadId,
@@ -185,20 +186,22 @@ interface SetSnapshotAndStepInParams {
   stepsAcc: Steps,
   programPath: string,
   client: SocketDebugClient,
+  /** absolute paths */
+  filePaths: string[],
   canDigVariable: GetSnapshotParams['canDigVariable'],
   canDigScope: GetSnapshotParams['canDigScope'],
   threadId: GetSnapshotParams['threadId'],
 }
-async function setSnapshotAndStepIn({ client, programPath, stepsAcc, canDigScope, canDigVariable, threadId }: SetSnapshotAndStepInParams): Promise<void> {
+async function setSnapshotAndStepIn({ client, programPath, stepsAcc, filePaths, canDigScope, canDigVariable, threadId }: SetSnapshotAndStepInParams): Promise<void> {
   const i = stepsAcc.length
   try {
     logger.debug('Execute steps', i)
-    const snapshot = await getSnapshot({ client, canDigScope, canDigVariable, threadId })
+    const snapshot = await getSnapshot({ client, filePaths, canDigScope, canDigVariable, threadId })
     logger.dir({ snapshot }, { colors: true, depth: 10 })
-    stepsAcc.push(snapshot)
-    logger.debug('StepIn', i, stepsAcc[i-1]?.stackFrames[0].source ?? '')
-    logger.debug('Source', i, { sourcePath: snapshot.stackFrames[0].source?.path, programPath: programPath })
-    snapshot.stackFrames[0].source?.path === programPath
+    if (snapshot.stackFrames.length > 0) stepsAcc.push(snapshot)
+    // logger.debug('StepIn', i, stepsAcc[i-1]?.stackFrames[0]?.source ?? '')
+    // logger.debug('Source', i, { sourcePath: snapshot.stackFrames[0]?.source?.path, programPath })
+    snapshot.stackFrames.some(isStackFromOfSourceFile(filePaths))
       ? await client.stepIn({ threadId, granularity: 'instruction' })
       : await client.stepOut({ threadId, granularity: 'instruction' })
   } catch (error) {
@@ -208,18 +211,25 @@ async function setSnapshotAndStepIn({ client, programPath, stepsAcc, canDigScope
 
 interface GetSnapshotParams {
   client: SocketDebugClient,
+  /** absolute paths */
+  filePaths: string[],
   canDigVariable: GetStackFrameParams['canDigVariable'],
   canDigScope: GetStackFrameParams['canDigScope'],
   threadId: number
 }
-async function getSnapshot({ client, canDigScope, canDigVariable, threadId }: GetSnapshotParams): Promise<StepSnapshot> {
+async function getSnapshot({ client, filePaths, canDigScope, canDigVariable, threadId }: GetSnapshotParams): Promise<StepSnapshot> {
   const result = await client.stackTrace({ threadId });
-  const stackFrames = await Promise.all(result.stackFrames.map((stackFrame) => getStackFrame({
-    client,
-    canDigScope,
-    canDigVariable,
-    stackFrame,
-  })))
+  logger.dir({ filePaths })
+  const stackFrames = await Promise.all(
+    result.stackFrames
+      .filter(isStackFromOfSourceFile(filePaths))
+      .map((stackFrame) => getStackFrame({
+        client,
+        canDigScope,
+        canDigVariable,
+        stackFrame,
+      }))
+  )
   return { stackFrames }
 }
 
@@ -277,5 +287,11 @@ async function getVariable({ client, canDigVariable, maxDepth, variable }: GetVa
   } catch (error) {
     logger.dir({ variable, error })
     return { ...variable, variables: [] }
+  }
+}
+
+function isStackFromOfSourceFile(fileAbsolutePaths: string[]) {
+  return (stackFrame: DebugProtocol.StackFrame) => {
+    return !!stackFrame.source && fileAbsolutePaths.some((filePath) => filePath === stackFrame.source?.path)
   }
 }

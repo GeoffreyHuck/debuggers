@@ -64,6 +64,7 @@ const connect = (
 
   const spawnedTerminalRequest = new Promise<void>((resolve, reject) => {
     client.onRunInTerminalRequest(async ({ args: [argv, ...args], cwd, env, kind, title }) => {
+      if (!argv) throw new Error('argv must be defined')
       logger.debug('[Event] RunInTerminalRequest', { argv, args, cwd, kind, title })
       const subprocess = cp.spawn(argv, args, {
         stdio: 'inherit',

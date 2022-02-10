@@ -6,6 +6,7 @@ import { languageByExtension, runSteps, toLanguageExtension } from './run-steps/
 logger.debug('process args', process.argv.slice(2))
 
 const [mainFilePath] = process.argv.slice(-1)
+if (!mainFilePath) throw new Error('mainFilePath must be defined')
 
 const fileExtension = path.extname(mainFilePath)
 const language = languageByExtension[toLanguageExtension(fileExtension)]
@@ -16,6 +17,8 @@ if (!language) {
 
 async function main() {
   logger.debug({ language, mainFilePath })
+
+  if (!mainFilePath) throw new Error('mainFilePath must be defined')
   const result = await runSteps(language, {
     logLevel: logger.level === 'debug' ? 'On' : 'Off',
     main: { relativePath: mainFilePath },
